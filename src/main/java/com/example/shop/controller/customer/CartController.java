@@ -43,11 +43,14 @@ public class CartController {
             @PageableDefault(size = 20)
             Pageable pageable) {
 
+        CartResponse cart = service.add(
+                authentication.getName(),
+                request,
+                pageable);
+
         return ResponseEntity.status(201)
-                .body(service.add(
-                        authentication.getName(),
-                        request,
-                        pageable));
+                .header("Location", "/api/cart")
+                .body(cart);
     }
 
     @PutMapping("/items/{itemId}")

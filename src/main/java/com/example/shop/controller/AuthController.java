@@ -34,6 +34,7 @@ public class AuthController {
             @Valid @RequestBody RegisterRequest request) {
 
         return ResponseEntity.status(HttpStatus.CREATED)
+                .header("Location", "/api/users/me")
                 .cacheControl(CacheControl.noStore())
                 .body(authService.register(request));
     }

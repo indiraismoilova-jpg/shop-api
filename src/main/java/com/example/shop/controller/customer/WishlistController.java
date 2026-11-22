@@ -38,10 +38,15 @@ public class WishlistController {
             Authentication authentication,
             @PathVariable Long productId) {
 
+        WishlistResponse created = service.add(
+                authentication.getName(),
+                productId);
+
         return ResponseEntity.status(201)
-                .body(service.add(
-                        authentication.getName(),
-                        productId));
+                .header(
+                        "Location",
+                        "/api/wishlist/" + productId)
+                .body(created);
     }
 
     @DeleteMapping("/{productId}")

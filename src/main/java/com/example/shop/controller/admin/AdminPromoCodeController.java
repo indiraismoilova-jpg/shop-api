@@ -36,11 +36,16 @@ public class AdminPromoCodeController {
             Authentication authentication,
             @Valid @RequestBody PromoCodeRequest request) {
 
+        PromoResponse created = service.save(
+                null,
+                authentication.getName(),
+                request);
+
         return ResponseEntity.status(201)
-                .body(service.save(
-                        null,
-                        authentication.getName(),
-                        request));
+                .header(
+                        "Location",
+                        "/api/admin/promo-codes/" + created.id())
+                .body(created);
     }
 
     @PutMapping("/{id}")

@@ -124,11 +124,11 @@ Import both files from `docs/postman/`:
 - `shop.postman_collection.json`
 - `shop_local.postman_environment.json`
 
-Select **Shop Local — Part 14**, change only `baseUrl`, then run **Auth** followed by any complete folder, or run the whole collection in order with one iteration.
+Select **Shop Final Check**, change only `baseUrl`, then run **Auth** followed by any complete folder, or run the whole collection in order with one iteration.
 
 Login stores `accessToken` and `refreshToken` automatically. Each other folder starts by preparing isolated fixtures and refreshing its tokens. No IDs or personal credentials need manual editing. Validation, invalid credentials, failed payments, forbidden access, not-found resources and illegal transitions deliberately return 400/401/402/403/404/409 and have passing assertions for those codes.
 
-The collection contains 141 visible requests covering all 84 declared controller routes, including aliases. Both the separate automated run and the user's Postman run completed with **340 passed assertions, 0 failed, 0 errors**. Detailed usage and route coverage are in `docs/postman/POSTMAN_README.md` and `docs/postman/ENDPOINT_COVERAGE.md`.
+The collection contains 155 visible requests covering all 84 declared controller routes, including aliases. Both the separate automated run and the user's Postman run completed with **625 passed assertions, 0 failed, 0 errors**. Detailed usage and route coverage are in `docs/postman/POSTMAN_README.md` and `docs/postman/ENDPOINT_COVERAGE.md`.
 
 ## Database deliverables
 

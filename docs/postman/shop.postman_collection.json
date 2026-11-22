@@ -1,9 +1,9 @@
 {
   "info": {
-    "_postman_id": "ed85fe73-c584-434f-93bd-b9f4c8482333",
-    "name": "Shop — Part 14",
+    "_postman_id": "d4825e48-e9cf-45df-b097-e14c44ad645f",
+    "name": "Shop — Final checklist",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "Import this collection AND shop_local.postman_environment.json. Select the environment, change only baseUrl, run Auth, then run any complete folder from its first request (00 | Prepare). SQL migrations/seeds 001–013 must already be applied. Each folder creates unique disposable fixtures and logs in a seeded fake admin; no seed products/accounts are edited. Every request asserts one exact expected status. Expected 400/401/402/403/404/409 responses are deliberate passing negative tests. Tokens/IDs are stored automatically. Use a local coursework database, payment simulation enabled. Do not run individual dependent requests before the folder setup."
+    "description": "Import this collection AND shop_local.postman_environment.json. Select the environment, change only baseUrl, run Auth, then run any complete folder from its first request (00 | Prepare). SQL migrations/seeds 001–014 must already be applied. Each folder creates unique disposable fixtures and logs in a seeded fake admin; no seed products/accounts are edited. Every request asserts one exact expected status. Expected 400/401/402/403/404/409 responses are deliberate passing negative tests. Tokens/IDs are stored automatically. Use a local coursework database, payment simulation enabled. Do not run individual dependent requests before the folder setup. Final checklist checks add Location headers, empty 204 bodies, password/hash/stack-trace exclusion, unauthenticated and cross-customer access, product media, validation field names, and the fifth random card scenario."
   },
   "auth": {
     "type": "bearer",
@@ -40,6 +40,7 @@
           "      }",
           "      const res = await new Promise((resolve,reject)=>pm.sendRequest(req,(err,res)=>err?reject(err):resolve(res)));",
           "      pm.test(\"Fixture: \"+label+\" → \"+expected, ()=>pm.expect(res.code).to.eql(expected));",
+          "      if (expected === 201) pm.test(\"Fixture: \"+label+\" has Location\", ()=>pm.expect(res.headers.get(\"Location\")).to.be.a(\"string\").and.not.empty);",
           "      if (res.code !== expected) throw new Error(label+\": HTTP \"+res.code+\" \"+res.text());",
           "      return res.code===204 ? null : res.json();",
           "    }",
@@ -97,6 +98,37 @@
           "    pm.test(\"Fixture setup succeeded\",()=>{throw error;});",
           "    console.error(error.message);",
           "    if (pm.execution && pm.execution.skipRequest) pm.execution.skipRequest();",
+          "  });",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (pm.response.code === 201) {",
+          "  pm.test(\"Created resource has Location header\", () => {",
+          "    pm.expect(pm.response.headers.get(\"Location\")).to.be.a(\"string\").and.not.empty;",
+          "    pm.expect(pm.response.headers.get(\"Location\")).to.match(/^\\/api\\//);",
+          "  });",
+          "}",
+          "if (pm.response.code === 204) {",
+          "  pm.test(\"204 has no response body\", () => pm.expect(pm.response.text()).to.eql(\"\"));",
+          "}",
+          "if ((pm.response.headers.get(\"Content-Type\") || \"\").includes(\"application/json\")) {",
+          "  pm.test(\"No password, password hash, entity internals or stack trace in JSON\", () => {",
+          "    const forbidden = new Set([\"password\",\"passwordhash\",\"password_hash\",\"stacktrace\",\"stack_trace\",\"trace\",\"hibernatelazyinitializer\",\"handler\"]);",
+          "    function inspect(node, path = \"\") {",
+          "      if (!node || typeof node !== \"object\") return;",
+          "      for (const [key,value] of Object.entries(node)) {",
+          "        const fieldLabel = pm.response.code===400 && path===\"details\" && Array.isArray(value);",
+          "        pm.expect(forbidden.has(key.toLowerCase()) && !fieldLabel, \"Forbidden response key: \"+key).to.eql(false);",
+          "        inspect(value, path ? path+\".\"+key : key);",
+          "      }",
+          "    }",
+          "    inspect(pm.response.json());",
           "  });",
           "}"
         ]
@@ -573,7 +605,8 @@
                 "exec": [
                   "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
                   "const error = pm.response.json();",
-                  "pm.test(\"Standard error body\", () => { pm.expect(error.status).to.eql(400); pm.expect(error.message).to.be.a(\"string\"); pm.expect(error.path).to.be.a(\"string\"); });"
+                  "pm.test(\"Standard error body\", () => { pm.expect(error.status).to.eql(400); pm.expect(error.message).to.be.a(\"string\"); pm.expect(error.path).to.be.a(\"string\"); });",
+                  "pm.test(\"Validation names failing fields\",()=>{const fields=pm.response.json().details; pm.expect(fields).to.have.property(\"email\");pm.expect(fields).to.have.property(\"password\");pm.expect(fields).to.have.property(\"firstName\");pm.expect(fields).to.have.property(\"lastName\");});"
                 ]
               }
             }
@@ -1291,6 +1324,34 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Protected profile without a token",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/users/me",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 401\",()=>pm.response.to.have.status(401));",
+                  "pm.test(\"Standard error body\",()=>{const err=pm.response.json();pm.expect(err.status).to.eql(401);pm.expect(err.message).to.be.a(\"string\");pm.expect(err.path).to.be.a(\"string\");});"
                 ]
               }
             }
@@ -2029,7 +2090,8 @@
                 "exec": [
                   "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
                   "const error = pm.response.json();",
-                  "pm.test(\"Standard error body\", () => { pm.expect(error.status).to.eql(400); pm.expect(error.message).to.be.a(\"string\"); pm.expect(error.path).to.be.a(\"string\"); });"
+                  "pm.test(\"Standard error body\", () => { pm.expect(error.status).to.eql(400); pm.expect(error.message).to.be.a(\"string\"); pm.expect(error.path).to.be.a(\"string\"); });",
+                  "pm.test(\"Validation names failing fields\",()=>{const fields=pm.response.json().details; pm.expect(fields).to.have.property(\"quantity\");});"
                 ]
               }
             }
@@ -2348,6 +2410,118 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Register a separate customer B",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/auth/register",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"other.{{runId}}@example.com\",\n  \"password\": \"OtherDemo1!\",\n  \"firstName\": \"Other\",\n  \"lastName\": \"Customer\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\",()=>pm.response.to.have.status(201));",
+                  "const finalCheckResponse=pm.response.json();",
+                  "pm.environment.set(\"otherCustomerToken\",finalCheckResponse.accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Customer B cannot read customer A order",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/orders/{{orderId}}",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{otherCustomerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 403\",()=>pm.response.to.have.status(403));",
+                  "pm.test(\"Standard error body\",()=>{const err=pm.response.json();pm.expect(err.status).to.eql(403);pm.expect(err.message).to.be.a(\"string\");pm.expect(err.path).to.be.a(\"string\");});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Customer B cannot read customer A order number",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/orders/number/{{orderNumber}}",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{otherCustomerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 403\",()=>pm.response.to.have.status(403));",
+                  "pm.test(\"Standard error body\",()=>{const err=pm.response.json();pm.expect(err.status).to.eql(403);pm.expect(err.message).to.be.a(\"string\");pm.expect(err.path).to.be.a(\"string\");});"
                 ]
               }
             }
@@ -2984,6 +3158,223 @@
               }
             }
           ]
+        },
+        {
+          "name": "Prepare cart for fifth card scenario",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/cart/items",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": {{productId}},\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\",()=>pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Prepare independent fifth-scenario order",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/orders",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"addressId\": {{addressId}},\n  \"deliveryOptionId\": {{deliveryOptionId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\",()=>pm.response.to.have.status(201));",
+                  "const finalCheckResponse=pm.response.json();",
+                  "pm.environment.set(\"randomOrderId\",finalCheckResponse.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Other Luhn-valid card: allowed random outcome",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/payments/process",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{randomOrderId}},\n  \"paymentMethod\": \"CARD\",\n  \"cardNumber\": \"4242424242424242\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Other valid card returns 200 or 402\",()=>pm.expect([200,402]).to.include(pm.response.code));",
+                  "pm.environment.set(\"randomPaymentSucceeded\",String(pm.response.code===200));",
+                  "if(pm.response.code===200){pm.test(\"Random success is a completed payment\",()=>{const p=pm.response.json();pm.expect(p.status).to.eql(\"COMPLETED\");pm.expect(p.cardLastFourDigits).to.eql(\"4242\");});} else {pm.test(\"Random failure has the standard 402 body\",()=>{const e=pm.response.json();pm.expect(e.status).to.eql(402);pm.expect(e.message).to.be.a(\"string\");});}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Persisted fifth-scenario payment state",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/payments/{{randomOrderId}}/status",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\",()=>pm.response.to.have.status(200));",
+                  "const finalCheckResponse=pm.response.json();",
+                  "pm.test(\"Random payment persisted consistently\",()=>{const ok=String(pm.environment.get(\"randomPaymentSucceeded\"))===\"true\";pm.expect(finalCheckResponse.status).to.eql(ok?\"COMPLETED\":\"FAILED\");pm.expect(finalCheckResponse.cardLastFourDigits).to.eql(\"4242\");if(!ok)pm.expect(finalCheckResponse.errorCode).to.eql(\"RANDOM_FAILURE\");});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Fifth-scenario order state",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/orders/{{randomOrderId}}",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\",()=>pm.response.to.have.status(200));",
+                  "const finalCheckResponse=pm.response.json();",
+                  "pm.test(\"Random failure never pays the order\",()=>pm.expect(finalCheckResponse.status).to.eql(String(pm.environment.get(\"randomPaymentSucceeded\"))===\"true\"?\"PAID\":\"CONFIRMED\"));"
+                ]
+              }
+            }
+          ]
         }
       ],
       "description": "Run the complete folder in order. Its first request creates isolated data and refreshes customer/admin tokens."
@@ -3269,6 +3660,111 @@
                   "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
                   "const shopResponse = pm.response.json();",
                   "pm.test(\"Valid promo\", () => { pm.expect(shopResponse.valid===true && Number(shopResponse.discount)===12).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Expire only the test promo",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/admin/promo-codes/{{promoId}}",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{promoCode}}\",\n  \"discountType\": \"PERCENTAGE\",\n  \"discountValue\": 10,\n  \"minOrderAmount\": 50,\n  \"maxDiscountAmount\": 20,\n  \"maxUsageCount\": 100,\n  \"maxUsagePerUser\": 10,\n  \"validFrom\": \"{{expiredFrom}}\",\n  \"validTo\": \"{{expiredTo}}\",\n  \"isActive\": true,\n  \"productIds\": [\n    {{productId}}\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set(\"expiredFrom\",new Date(Date.now()-86400000*2).toISOString().slice(0,19));",
+                  "pm.environment.set(\"expiredTo\",new Date(Date.now()-86400000).toISOString().slice(0,19));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\",()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Expired promo is rejected",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/promo/validate",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{promoCode}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\",()=>pm.response.to.have.status(400));",
+                  "pm.test(\"Standard error body\",()=>{const err=pm.response.json();pm.expect(err.status).to.eql(400);pm.expect(err.message).to.be.a(\"string\");pm.expect(err.path).to.be.a(\"string\");});"
                 ]
               }
             }
@@ -5070,6 +5566,97 @@
         }
       ],
       "description": "Run the complete folder in order. Its first request creates isolated data and refreshes customer/admin tokens."
+    },
+    {
+      "name": "Final checklist",
+      "description": "Read-only checks of the seeded image/specification DTOs and public SVG resource. No setup is needed; run SQL 014 first.",
+      "item": [
+        {
+          "name": "Find seeded product with media",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/products?search=Nova%20Phone%20Lite&size=100",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\",()=>pm.response.to.have.status(200));",
+                  "const finalCheckResponse=pm.response.json();",
+                  "const seeded=finalCheckResponse.content.find(p=>p.sku===\"DEMO-P01\");pm.test(\"Seed product exists\",()=>pm.expect(seeded).to.be.an(\"object\"));if(seeded)pm.environment.set(\"seedProductId\",seeded.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Seeded product image and specification DTOs",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/products/{{seedProductId}}",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\",()=>pm.response.to.have.status(200));",
+                  "const finalCheckResponse=pm.response.json();",
+                  "pm.test(\"Images and specifications are exposed without entity back references\",()=>{pm.expect(finalCheckResponse.images).to.be.an(\"array\").with.length.at.least(1);pm.expect(finalCheckResponse.specifications).to.be.an(\"array\").with.length.at.least(2);finalCheckResponse.images.forEach(i=>{pm.expect(i.imageUrl).to.be.a(\"string\");pm.expect(i).not.to.have.property(\"product\");});finalCheckResponse.specifications.forEach(s=>{pm.expect(s.name).to.be.a(\"string\");pm.expect(s.value).to.be.a(\"string\");pm.expect(s).not.to.have.property(\"product\");});});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Public demo image needs no token",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/images/demo-product.svg",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\",()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

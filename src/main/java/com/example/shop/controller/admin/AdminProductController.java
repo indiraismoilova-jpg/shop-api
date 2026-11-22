@@ -37,9 +37,8 @@ public class AdminProductController {
 
         ProductResponse created = products.create(request);
 
-        return ResponseEntity
-                .created(URI.create(
-                        "/api/products/" + created.id()))
+        return ResponseEntity.created(
+                        URI.create("/api/products/" + created.id()))
                 .body(created);
     }
 
@@ -87,11 +86,17 @@ public class AdminProductController {
             @PathVariable Long id,
             @Valid @RequestBody VariantRequest request) {
 
+        VariantResponse created = catalog.saveVariant(
+                id,
+                null,
+                request);
+
         return ResponseEntity.status(201)
-                .body(catalog.saveVariant(
-                        id,
-                        null,
-                        request));
+                .header(
+                        "Location",
+                        "/api/admin/products/" + id
+                                + "/variants/" + created.id())
+                .body(created);
     }
 
     @PutMapping("/{id}/variants/{variantId}")

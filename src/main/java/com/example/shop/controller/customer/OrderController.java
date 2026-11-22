@@ -30,10 +30,13 @@ public class OrderController {
             Authentication authentication,
             @Valid @RequestBody CreateOrderRequest request) {
 
+        OrderResponse created = service.create(
+                authentication.getName(),
+                request);
+
         return ResponseEntity.status(201)
-                .body(service.create(
-                        authentication.getName(),
-                        request));
+                .header("Location", "/api/orders/" + created.id())
+                .body(created);
     }
 
     @GetMapping

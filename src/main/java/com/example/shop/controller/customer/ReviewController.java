@@ -55,8 +55,11 @@ public class ReviewController {
                 authentication.getName(),
                 request);
 
-        return ResponseEntity
-                .status(201)
+        return ResponseEntity.status(201)
+                .header(
+                        "Location",
+                        "/api/products/" + productId
+                                + "/reviews/" + created.id())
                 .body(created);
     }
 
@@ -89,6 +92,7 @@ public class ReviewController {
 
         return ResponseEntity.noContent().build();
     }
+
     @PatchMapping("/{id}/approve")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ReviewResponse approve(
