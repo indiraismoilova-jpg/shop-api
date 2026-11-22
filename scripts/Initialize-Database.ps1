@@ -31,7 +31,7 @@ $null = Invoke-DbScalar "CREATE TABLE IF NOT EXISTS schema_migrations (filename 
 
 $sqlFolder = Join-Path $root "src/main/resources/db"
 $files = @(Get-ChildItem $sqlFolder -File | Where-Object { $_.Name -match '^[0-9]{3}_[A-Za-z0-9_]+\.sql$' } | Sort-Object Name)
-if ($files.Count -ne 13) { throw "Expected 13 numbered SQL files, found $($files.Count)" }
+if ($files.Count -ne 14) { throw "Expected 14 numbered SQL files, found $($files.Count)" }
 
 foreach ($file in $files) {
     $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -52,6 +52,6 @@ foreach ($file in $files) {
     if ($LASTEXITCODE -ne 0) { throw "Migration failed and was rolled back: $($file.Name)" }
 }
 
-Write-Host "All 13 SQL files are applied."
+Write-Host "All 14 SQL files are applied."
 & docker @composeArgs exec -T postgres psql -U $env:DB_USERNAME -d shopdb -c "SELECT 'categories' AS entity, COUNT(*) FROM categories UNION ALL SELECT 'brands', COUNT(*) FROM brands UNION ALL SELECT 'products', COUNT(*) FROM products UNION ALL SELECT 'users', COUNT(*) FROM users UNION ALL SELECT 'orders', COUNT(*) FROM orders UNION ALL SELECT 'reviews', COUNT(*) FROM reviews UNION ALL SELECT 'promo_codes', COUNT(*) FROM promo_codes;"
 if ($LASTEXITCODE -ne 0) { throw "Seed verification query failed" }

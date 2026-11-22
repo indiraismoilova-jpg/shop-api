@@ -2,9 +2,15 @@ package com.example.shop.mapper;
 
 import com.example.shop.dto.request.CreateProductRequest;
 import com.example.shop.dto.request.UpdateProductRequest;
+import com.example.shop.dto.response.ProductImageResponse;
 import com.example.shop.dto.response.ProductResponse;
+import com.example.shop.dto.response.ProductSpecificationResponse;
 import com.example.shop.model.entity.Product;
+import com.example.shop.model.entity.ProductImage;
+import com.example.shop.model.entity.ProductSpecification;
 import org.springframework.stereotype.Component;
+
+import java.util.Comparator;
 
 @Component
 public class ProductMapper {
@@ -98,7 +104,31 @@ public class ProductMapper {
                 categoryMapper.toResponse(product.getCategory()),
                 product.getBrand() == null
                         ? null
-                        : brandMapper.toResponse(product.getBrand())
+                        : brandMapper.toResponse(product.getBrand()),
+                product.getImages().stream()
+                        .sorted(Comparator
+                                .comparing(ProductImage::getSortOrder)
+                                .thenComparing(ProductImage::getId))
+                        .map(image -> new ProductImageResponse(
+                                image.getId(),
+                                image.getImageUrl(),
+                                image.getThumbnailUrl(),
+                                image.getAltText(),
+                                image.isPrimary(),
+                                image.getSortOrder()))
+                        .toList(),
+                product.getSpecifications().stream()
+                        .sorted(Comparator
+                                .comparing(ProductSpecification::getSortOrder)
+                                .thenComparing(ProductSpecification::getId))
+                        .map(specification ->
+                                new ProductSpecificationResponse(
+                                        specification.getId(),
+                                        specification.getName(),
+                                        specification.getValue(),
+                                        specification.getGroupName(),
+                                        specification.getSortOrder()))
+                        .toList()
         );
     }
 }

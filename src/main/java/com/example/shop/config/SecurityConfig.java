@@ -102,7 +102,7 @@ public class SecurityConfig {
                                 "/api/categories/**",
                                 "/api/brands",
                                 "/api/brands/**",
-                                "/api/delivery/methods")
+                                "/api/delivery/methods", "/images/**")
                         .permitAll()
                         .requestMatchers("/api/admin/**")
                         .hasAnyRole("ADMIN", "MANAGER")
