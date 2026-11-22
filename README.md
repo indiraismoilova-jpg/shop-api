@@ -33,7 +33,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 The environment script creates a local `.env` with a generated database password and a Base64 JWT key. It loads the values into the current process; Spring Boot does not automatically read `.env`. The file is ignored by Git. Existing unrelated `.env` lines are preserved. If a matching existing PostgreSQL container is found and no database password is configured, its configured password is reused.
 
-The database script starts PostgreSQL, waits until it is ready, and applies all 13 numbered SQL files in order. Each file and its checksum are recorded in `schema_migrations`. Re-running the script skips unchanged applied files. A failed migration rolls back together with its ledger entry. Do not edit a migration after it has been recorded.
+The database script starts PostgreSQL, waits until it is ready, and applies all 14 numbered SQL files in order. Each file and its checksum are recorded in `schema_migrations`. Re-running the script skips unchanged applied files. A failed migration rolls back together with its ledger entry. Do not edit a migration after it has been recorded.
 
 On an empty database, the final counts are:
 
@@ -172,3 +172,7 @@ The gateway simulates a 1–3 second delay. Failed payments leave the order CONF
 ## Scope
 
 Required core modules are implemented. Part 12 optional modules (bonus, returns, support tickets, email delivery, Redis, rate limiting, scheduled jobs, Swagger/OpenAPI, AOP/events and the upload/MapStruct/Specifications bundle) are not claimed as completed. Swagger is not installed merely because its paths are permitted by security configuration.
+
+
+## Product details
+014_product_details_seed.sql adds 20 demo product images and 40 specifications. Product responses include images and specifications. The demo image is served at /images/demo-product.svg.
