@@ -1,0 +1,5075 @@
+{
+  "info": {
+    "_postman_id": "ed85fe73-c584-434f-93bd-b9f4c8482333",
+    "name": "Shop — Part 14",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Import this collection AND shop_local.postman_environment.json. Select the environment, change only baseUrl, run Auth, then run any complete folder from its first request (00 | Prepare). SQL migrations/seeds 001–013 must already be applied. Each folder creates unique disposable fixtures and logs in a seeded fake admin; no seed products/accounts are edited. Every request asserts one exact expected status. Expected 400/401/402/403/404/409 responses are deliberate passing negative tests. Tokens/IDs are stored automatically. Use a local coursework database, payment simulation enabled. Do not run individual dependent requests before the folder setup."
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (pm.info.requestName.startsWith(\"00 | Prepare\")) {",
+          "  (async function () {",
+          "    const base = pm.environment.get(\"baseUrl\").replace(/\\/+$/, \"\");",
+          "    pm.environment.set(\"baseUrl\", base);",
+          "    const run = pm.variables.replaceIn(\"{{$guid}}\").replace(/-/g, \"\").toLowerCase();",
+          "    pm.environment.set(\"runId\", run);",
+          "    pm.environment.set(\"customerEmail\", \"pm.\" + run + \"@example.com\");",
+          "    pm.environment.set(\"customerPassword\", \"PmTest1!\" + run);",
+          "    pm.environment.set(\"validFrom\", new Date(Date.now()-86400000).toISOString().slice(0,19));",
+          "    pm.environment.set(\"validTo\", new Date(Date.now()+86400000*30).toISOString().slice(0,19));",
+          "    async function call(label, method, path, body, token, expected) {",
+          "      const req = {url:base+path, method, header:[{key:\"Accept\",value:\"application/json\"}]};",
+          "      if (token) req.header.push({key:\"Authorization\", value:\"Bearer \"+token});",
+          "      if (body !== undefined) {",
+          "        req.header.push({key:\"Content-Type\",value:\"application/json\"});",
+          "        req.body={mode:\"raw\",raw:JSON.stringify(body)};",
+          "      }",
+          "      const res = await new Promise((resolve,reject)=>pm.sendRequest(req,(err,res)=>err?reject(err):resolve(res)));",
+          "      pm.test(\"Fixture: \"+label+\" → \"+expected, ()=>pm.expect(res.code).to.eql(expected));",
+          "      if (res.code !== expected) throw new Error(label+\": HTTP \"+res.code+\" \"+res.text());",
+          "      return res.code===204 ? null : res.json();",
+          "    }",
+          "    const admin = await call(\"seed admin login\",\"POST\",\"/api/auth/login\",{",
+          "      email:pm.environment.get(\"adminEmail\"),password:pm.environment.get(\"adminPassword\")",
+          "    },null,200);",
+          "    pm.environment.set(\"adminAccessToken\",admin.accessToken);",
+          "    const auth = await call(\"new isolated customer\",\"POST\",\"/api/auth/register\",{",
+          "      email:pm.environment.get(\"customerEmail\"), password:pm.environment.get(\"customerPassword\"),",
+          "      firstName:\"Postman\",lastName:\"Test\"",
+          "    },null,201);",
+          "    pm.environment.set(\"accessToken\",auth.accessToken);",
+          "    pm.environment.set(\"refreshToken\",auth.refreshToken);",
+          "    const a=admin.accessToken, c=auth.accessToken;",
+          "    const category=await call(\"category\",\"POST\",\"/api/admin/categories\",{",
+          "      name:\"Postman \"+run,slug:\"pm-cat-\"+run,sortOrder:0,isActive:true",
+          "    },a,201);",
+          "    pm.environment.set(\"categoryId\",category.id); pm.environment.set(\"categorySlug\",category.slug);",
+          "    const brand=await call(\"brand\",\"POST\",\"/api/admin/brands\",{",
+          "      name:\"Postman \"+run,slug:\"pm-brand-\"+run,isActive:true,country:\"Kazakhstan\"",
+          "    },a,201);",
+          "    pm.environment.set(\"brandId\",brand.id);",
+          "    for (let i=1;i<=2;i++) {",
+          "      const product=await call(\"product \"+i,\"POST\",\"/api/admin/products\",{",
+          "        name:\"Postman Product \"+i+\" \"+run,slug:\"pm-product-\"+i+\"-\"+run,sku:\"PM-\"+i+\"-\"+run,",
+          "        basePrice:120*i,stockQuantity:500,lowStockThreshold:5,isActive:true,",
+          "        isFeatured:true,isNewArrival:true,categoryId:category.id,brandId:brand.id",
+          "      },a,201);",
+          "      pm.environment.set(i===1?\"productId\":\"otherProductId\",product.id);",
+          "    }",
+          "    const delivery=await call(\"delivery options\",\"GET\",\"/api/delivery/methods?size=100\",undefined,null,200);",
+          "    const courier=delivery.content.find(x=>x.code===\"COURIER\");",
+          "    if (!courier) throw new Error(\"Run SQL 008_delivery_seed.sql first: COURIER missing\");",
+          "    pm.environment.set(\"deliveryOptionId\",courier.id);",
+          "    const address=await call(\"customer address\",\"POST\",\"/api/users/me/addresses\",{",
+          "      title:\"Postman\",country:\"Kazakhstan\",city:\"Almaty\",street:\"Demo Street\",building:\"1\",",
+          "      postalCode:\"050000\",recipientName:\"Postman Test\",recipientPhone:\"+77000000000\",isDefault:true",
+          "    },c,201);",
+          "    pm.environment.set(\"addressId\",address.id);",
+          "    const code=\"PM_\"+run.toUpperCase();",
+          "    const promo=await call(\"promo\",\"POST\",\"/api/admin/promo-codes\",{",
+          "      code,discountType:\"PERCENTAGE\",discountValue:10,minOrderAmount:50,maxDiscountAmount:20,",
+          "      maxUsageCount:100,maxUsagePerUser:10,validFrom:pm.environment.get(\"validFrom\"),",
+          "      validTo:pm.environment.get(\"validTo\"),isActive:true,productIds:[Number(pm.environment.get(\"productId\"))]",
+          "    },a,201);",
+          "    pm.environment.set(\"promoId\",promo.id);pm.environment.set(\"promoCode\",promo.code);",
+          "    const user=await call(\"customer profile\",\"GET\",\"/api/users/me\",undefined,c,200);",
+          "    pm.environment.set(\"userId\",user.id);",
+          "    if (/fixtures: (Orders|Payments|Admin)$/.test(pm.info.requestName)) {",
+          "      await call(\"order cart item\",\"POST\",\"/api/cart/items\",{productId:Number(pm.environment.get(\"productId\")),quantity:1},c,201);",
+          "      const order=await call(\"pending order\",\"POST\",\"/api/orders\",{addressId:address.id,deliveryOptionId:courier.id},c,201);",
+          "      pm.environment.set(\"orderId\",order.id);pm.environment.set(\"orderNumber\",order.orderNumber);",
+          "    }",
+          "  })().catch(error=>{",
+          "    pm.test(\"Fixture setup succeeded\",()=>{throw error;});",
+          "    console.error(error.message);",
+          "    if (pm.execution && pm.execution.skipRequest) pm.execution.skipRequest();",
+          "  });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "01 | Register disposable customer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/register",
+            "description": "Expected HTTP 201. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{customerEmail}}\",\n  \"password\": \"{{customerPassword}}\",\n  \"firstName\": \"Postman\",\n  \"lastName\": \"Auth\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const run=pm.variables.replaceIn(\"{{$guid}}\").replace(/-/g, \"\").toLowerCase();",
+                  "pm.environment.set(\"customerEmail\", \"pm.auth.\"+run+\"@example.com\");",
+                  "pm.environment.set(\"customerPassword\", \"PmTest1!\"+run);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.environment.set(\"accessToken\",shopResponse.accessToken); pm.environment.set(\"refreshToken\",shopResponse.refreshToken); pm.test(\"Tokens stored automatically\",()=>{pm.expect(shopResponse.accessToken).to.be.a(\"string\").and.not.empty;pm.expect(shopResponse.refreshToken).to.be.a(\"string\").and.not.empty;});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 | Login — automatically save accessToken and refreshToken",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{customerEmail}}\",\n  \"password\": \"{{customerPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.environment.set(\"accessToken\",shopResponse.accessToken); pm.environment.set(\"refreshToken\",shopResponse.refreshToken); pm.test(\"Tokens stored automatically\",()=>{pm.expect(shopResponse.accessToken).to.be.a(\"string\").and.not.empty;pm.expect(shopResponse.refreshToken).to.be.a(\"string\").and.not.empty;});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 | Login seeded admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.environment.set(\"adminAccessToken\", shopResponse.accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04 | Refresh — rotate stored tokens",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/refresh",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.environment.set(\"accessToken\",shopResponse.accessToken); pm.environment.set(\"refreshToken\",shopResponse.refreshToken); pm.test(\"Tokens stored automatically\",()=>{pm.expect(shopResponse.accessToken).to.be.a(\"string\").and.not.empty;pm.expect(shopResponse.refreshToken).to.be.a(\"string\").and.not.empty;});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05 | Logout refresh token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/logout",
+            "description": "Expected HTTP 204. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06 | Login again after logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{customerEmail}}\",\n  \"password\": \"{{customerPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.environment.set(\"accessToken\",shopResponse.accessToken); pm.environment.set(\"refreshToken\",shopResponse.refreshToken); pm.test(\"Tokens stored automatically\",()=>{pm.expect(shopResponse.accessToken).to.be.a(\"string\").and.not.empty;pm.expect(shopResponse.refreshToken).to.be.a(\"string\").and.not.empty;});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "07 | Change temporary password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/change-password",
+            "description": "Expected HTTP 204. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{customerPassword}}\",\n  \"newPassword\": \"PmChanged2!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "08 | Login with changed password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{customerEmail}}\",\n  \"password\": \"PmChanged2!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.environment.set(\"accessToken\",shopResponse.accessToken); pm.environment.set(\"refreshToken\",shopResponse.refreshToken); pm.test(\"Tokens stored automatically\",()=>{pm.expect(shopResponse.accessToken).to.be.a(\"string\").and.not.empty;pm.expect(shopResponse.refreshToken).to.be.a(\"string\").and.not.empty;});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "09 | Restore temporary password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/change-password",
+            "description": "Expected HTTP 204. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"PmChanged2!\",\n  \"newPassword\": \"{{customerPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10 | Login with restored password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{customerEmail}}\",\n  \"password\": \"{{customerPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.environment.set(\"accessToken\",shopResponse.accessToken); pm.environment.set(\"refreshToken\",shopResponse.refreshToken); pm.test(\"Tokens stored automatically\",()=>{pm.expect(shopResponse.accessToken).to.be.a(\"string\").and.not.empty;pm.expect(shopResponse.refreshToken).to.be.a(\"string\").and.not.empty;});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11 | Deliberate validation failure",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/register",
+            "description": "Expected HTTP 400. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"not-an-email\",\n  \"password\": \"short\",\n  \"firstName\": \"\",\n  \"lastName\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
+                  "const error = pm.response.json();",
+                  "pm.test(\"Standard error body\", () => { pm.expect(error.status).to.eql(400); pm.expect(error.message).to.be.a(\"string\"); pm.expect(error.path).to.be.a(\"string\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12 | Deliberate invalid credentials",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Expected HTTP 401. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{customerEmail}}\",\n  \"password\": \"WrongPassword1!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));",
+                  "const error = pm.response.json();",
+                  "pm.test(\"Standard error body\", () => { pm.expect(error.status).to.eql(401); pm.expect(error.message).to.be.a(\"string\"); pm.expect(error.path).to.be.a(\"string\"); });"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Run the complete folder in order. Its first request creates isolated data and refreshes customer/admin tokens."
+    },
+    {
+      "name": "Products",
+      "item": [
+        {
+          "name": "00 | Prepare isolated fixtures: Products",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/products?page=0&size=20",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Search alias",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/products/search?q=Postman&minPrice=100&maxPrice=300&inStock=true",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Featured",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/products/featured",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "New arrivals",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/products/new-arrivals",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Best sellers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/products/best-sellers",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Variants",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/products/{{productId}}/variants",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Related",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/products/{{productId}}/related",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Product detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/products/{{productId}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Requested product returned\", () => { pm.expect(shopResponse.id === Number(pm.environment.get(\"productId\"))).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Deliberate not found",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/products/9223372036854775807",
+            "description": "Expected HTTP 404. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));",
+                  "const error = pm.response.json();",
+                  "pm.test(\"Standard error body\", () => { pm.expect(error.status).to.eql(404); pm.expect(error.message).to.be.a(\"string\"); pm.expect(error.path).to.be.a(\"string\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Deliberate invalid price range",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/products?minPrice=300&maxPrice=100",
+            "description": "Expected HTTP 400. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
+                  "const error = pm.response.json();",
+                  "pm.test(\"Standard error body\", () => { pm.expect(error.status).to.eql(400); pm.expect(error.message).to.be.a(\"string\"); pm.expect(error.path).to.be.a(\"string\"); });"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Run the complete folder in order. Its first request creates isolated data and refreshes customer/admin tokens."
+    },
+    {
+      "name": "Categories",
+      "item": [
+        {
+          "name": "00 | Prepare isolated fixtures: Categories",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Category list",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/categories",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Category tree",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/categories/tree",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Category products",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/categories/{{categoryId}}/products",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Category by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/categories/{{categoryId}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Category by slug identifier",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/categories/{{categorySlug}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Category by explicit slug route",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/categories/slug/{{categorySlug}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Run the complete folder in order. Its first request creates isolated data and refreshes customer/admin tokens."
+    },
+    {
+      "name": "Brands",
+      "item": [
+        {
+          "name": "00 | Prepare isolated fixtures: Brands",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Brand list",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/brands",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Brand detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/brands/{{brandId}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Brand products",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/brands/{{brandId}}/products",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Run the complete folder in order. Its first request creates isolated data and refreshes customer/admin tokens."
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "00 | Prepare isolated fixtures: Users",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Updated\",\n  \"lastName\": \"Postman\",\n  \"phone\": \"+77000000000\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change password through user route",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me/password",
+            "description": "Expected HTTP 204. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{customerPassword}}\",\n  \"newPassword\": \"PmChanged2!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login after password change",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{customerEmail}}\",\n  \"password\": \"PmChanged2!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.environment.set(\"accessToken\",shopResponse.accessToken); pm.environment.set(\"refreshToken\",shopResponse.refreshToken); pm.test(\"Tokens stored automatically\",()=>{pm.expect(shopResponse.accessToken).to.be.a(\"string\").and.not.empty;pm.expect(shopResponse.refreshToken).to.be.a(\"string\").and.not.empty;});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Restore password through user route",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me/password",
+            "description": "Expected HTTP 204. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"PmChanged2!\",\n  \"newPassword\": \"{{customerPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login after restoring password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{customerEmail}}\",\n  \"password\": \"{{customerPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.environment.set(\"accessToken\",shopResponse.accessToken); pm.environment.set(\"refreshToken\",shopResponse.refreshToken); pm.test(\"Tokens stored automatically\",()=>{pm.expect(shopResponse.accessToken).to.be.a(\"string\").and.not.empty;pm.expect(shopResponse.refreshToken).to.be.a(\"string\").and.not.empty;});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Address list",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me/addresses",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create second address",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me/addresses",
+            "description": "Expected HTTP 201. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Postman second\",\n  \"country\": \"Kazakhstan\",\n  \"city\": \"Almaty\",\n  \"street\": \"Demo Street\",\n  \"building\": \"2\",\n  \"postalCode\": \"050000\",\n  \"recipientName\": \"Postman Test\",\n  \"recipientPhone\": \"+77000000000\",\n  \"isDefault\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.environment.set(\"secondAddressId\", shopResponse.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update second address",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me/addresses/{{secondAddressId}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Postman second\",\n  \"country\": \"Kazakhstan\",\n  \"city\": \"Almaty\",\n  \"street\": \"Demo Street\",\n  \"building\": \"3\",\n  \"postalCode\": \"050000\",\n  \"recipientName\": \"Postman Test\",\n  \"recipientPhone\": \"+77000000000\",\n  \"isDefault\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Set default address",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me/addresses/{{secondAddressId}}/default",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete second address",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me/addresses/{{secondAddressId}}",
+            "description": "Expected HTTP 204. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Disable only this disposable account",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me",
+            "description": "Expected HTTP 204. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Run the complete folder in order. Its first request creates isolated data and refreshes customer/admin tokens."
+    },
+    {
+      "name": "Cart",
+      "item": [
+        {
+          "name": "00 | Prepare isolated fixtures: Cart",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get empty cart",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/cart",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Empty initial cart\", () => { pm.expect(shopResponse.totalQuantity === 0).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add item",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/cart/items",
+            "description": "Expected HTTP 201. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": {{productId}},\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.environment.set(\"cartItemId\", shopResponse.items.content[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update quantity",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/cart/items/{{cartItemId}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Quantity updated\", () => { pm.expect(shopResponse.totalQuantity === 2).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Merge duplicate items",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/cart/merge",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"productId\": {{productId}},\n      \"quantity\": 1\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Quantities added\", () => { pm.expect(shopResponse.totalQuantity === 3 && shopResponse.items.content.length === 1).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Apply promo capped at 20",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/cart/apply-promo",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{promoCode}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Correct capped discount\", () => { pm.expect(Number(shopResponse.subtotal)===360 && Number(shopResponse.discount)===20 && Number(shopResponse.total)===340).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Remove promo",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/cart/promo",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Discount removed\", () => { pm.expect(Number(shopResponse.discount)===0).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Remove cart item",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/cart/items/{{cartItemId}}",
+            "description": "Expected HTTP 204. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Clear cart",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/cart",
+            "description": "Expected HTTP 204. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Deliberate quantity validation failure",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/cart/items",
+            "description": "Expected HTTP 400. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": {{productId}},\n  \"quantity\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
+                  "const error = pm.response.json();",
+                  "pm.test(\"Standard error body\", () => { pm.expect(error.status).to.eql(400); pm.expect(error.message).to.be.a(\"string\"); pm.expect(error.path).to.be.a(\"string\"); });"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Run the complete folder in order. Its first request creates isolated data and refreshes customer/admin tokens."
+    },
+    {
+      "name": "Wishlist",
+      "item": [
+        {
+          "name": "00 | Prepare isolated fixtures: Wishlist",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List wishlist",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/wishlist",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add wishlist product",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/wishlist/{{productId}}",
+            "description": "Expected HTTP 201. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Move product into cart",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/wishlist/{{productId}}/move-to-cart",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Product moved into cart\", () => { pm.expect(shopResponse.totalQuantity===1).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add second wishlist product",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/wishlist/{{otherProductId}}",
+            "description": "Expected HTTP 201. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete wishlist product",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/wishlist/{{otherProductId}}",
+            "description": "Expected HTTP 204. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Clean test cart",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/cart",
+            "description": "Expected HTTP 204. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Run the complete folder in order. Its first request creates isolated data and refreshes customer/admin tokens."
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "00 | Prepare isolated fixtures: Orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List own orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/orders",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get order by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/orders/{{orderId}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Order arithmetic\", () => { pm.expect(Number(shopResponse.totalAmount) === Number(shopResponse.subtotal)-Number(shopResponse.discount)+Number(shopResponse.shippingCost)).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get order by number route",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/orders/number/{{orderNumber}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get order by number identifier",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/orders/{{orderNumber}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel pending order",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/orders/{{orderId}}/cancel",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Cancelled\", () => { pm.expect(shopResponse.status===\"CANCELLED\").to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reorder cancelled order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/orders/{{orderId}}/reorder",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Cart repopulated\", () => { pm.expect(shopResponse.totalQuantity===1).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create another order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/orders",
+            "description": "Expected HTTP 201. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"addressId\": {{addressId}},\n  \"deliveryOptionId\": {{deliveryOptionId}},\n  \"customerNote\": \"Postman test order\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.environment.set(\"orderId\", shopResponse.id); pm.environment.set(\"orderNumber\", shopResponse.orderNumber);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cart cleared atomically",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/cart",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Empty after order creation\", () => { pm.expect(shopResponse.totalQuantity===0).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel new test order",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/orders/{{orderId}}/cancel",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Run the complete folder in order. Its first request creates isolated data and refreshes customer/admin tokens."
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "00 | Prepare isolated fixtures: Payments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Payment methods",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/methods",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invalid Luhn card",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/process",
+            "description": "Expected HTTP 400. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{orderId}},\n  \"paymentMethod\": \"CARD\",\n  \"cardNumber\": \"4111111111111112\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
+                  "const error = pm.response.json();",
+                  "pm.test(\"Standard error body\", () => { pm.expect(error.status).to.eql(400); pm.expect(error.message).to.be.a(\"string\"); pm.expect(error.path).to.be.a(\"string\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Decline: INSUFFICIENT_FUNDS",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/process",
+            "description": "Expected HTTP 402. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{orderId}},\n  \"paymentMethod\": \"CARD\",\n  \"cardNumber\": \"4000000000000002\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 402\", () => pm.response.to.have.status(402));",
+                  "const error = pm.response.json();",
+                  "pm.test(\"Standard error body\", () => { pm.expect(error.status).to.eql(402); pm.expect(error.message).to.be.a(\"string\"); pm.expect(error.path).to.be.a(\"string\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Persisted failure: INSUFFICIENT_FUNDS",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/{{orderId}}/status",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Failure details persisted\", () => { pm.expect(shopResponse.status===\"FAILED\" && shopResponse.errorCode===\"INSUFFICIENT_FUNDS\" && shopResponse.cardLastFourDigits===\"0002\").to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Order stays CONFIRMED after INSUFFICIENT_FUNDS",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/orders/{{orderId}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Never PAID on failure\", () => { pm.expect(shopResponse.status===\"CONFIRMED\").to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Decline: NETWORK_ERROR",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/process",
+            "description": "Expected HTTP 402. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{orderId}},\n  \"paymentMethod\": \"CARD\",\n  \"cardNumber\": \"4000000000000069\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 402\", () => pm.response.to.have.status(402));",
+                  "const error = pm.response.json();",
+                  "pm.test(\"Standard error body\", () => { pm.expect(error.status).to.eql(402); pm.expect(error.message).to.be.a(\"string\"); pm.expect(error.path).to.be.a(\"string\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Persisted failure: NETWORK_ERROR",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/{{orderId}}/status",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Failure details persisted\", () => { pm.expect(shopResponse.status===\"FAILED\" && shopResponse.errorCode===\"NETWORK_ERROR\" && shopResponse.cardLastFourDigits===\"0069\").to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Order stays CONFIRMED after NETWORK_ERROR",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/orders/{{orderId}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Never PAID on failure\", () => { pm.expect(shopResponse.status===\"CONFIRMED\").to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Decline: SUSPECTED_FRAUD",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/process",
+            "description": "Expected HTTP 402. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{orderId}},\n  \"paymentMethod\": \"CARD\",\n  \"cardNumber\": \"4000000000000077\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 402\", () => pm.response.to.have.status(402));",
+                  "const error = pm.response.json();",
+                  "pm.test(\"Standard error body\", () => { pm.expect(error.status).to.eql(402); pm.expect(error.message).to.be.a(\"string\"); pm.expect(error.path).to.be.a(\"string\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Persisted failure: SUSPECTED_FRAUD",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/{{orderId}}/status",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Failure details persisted\", () => { pm.expect(shopResponse.status===\"FAILED\" && shopResponse.errorCode===\"SUSPECTED_FRAUD\" && shopResponse.cardLastFourDigits===\"0077\").to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Order stays CONFIRMED after SUSPECTED_FRAUD",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/orders/{{orderId}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Never PAID on failure\", () => { pm.expect(shopResponse.status===\"CONFIRMED\").to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Successful retry",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/process",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{orderId}},\n  \"paymentMethod\": \"CARD\",\n  \"cardNumber\": \"4111111111111111\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.environment.set(\"transactionId\", shopResponse.transactionId); pm.test(\"Successful test card\", () => { pm.expect(shopResponse.status===\"COMPLETED\" && shopResponse.cardLastFourDigits===\"1111\").to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Idempotent duplicate payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/process",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{orderId}},\n  \"paymentMethod\": \"CARD\",\n  \"cardNumber\": \"4111111111111111\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Same transaction\", () => { pm.expect(shopResponse.transactionId===pm.environment.get(\"transactionId\")).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Order becomes PAID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/orders/{{orderId}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Paid order\", () => { pm.expect(shopResponse.status===\"PAID\").to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Run the complete folder in order. Its first request creates isolated data and refreshes customer/admin tokens."
+    },
+    {
+      "name": "Delivery",
+      "item": [
+        {
+          "name": "00 | Prepare isolated fixtures: Delivery",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delivery methods",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/delivery/methods",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Shipping threshold: 499",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/delivery/calculate",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deliveryOptionId\": {{deliveryOptionId}},\n  \"subtotal\": 499\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Shipping cost and estimated dates\", () => { pm.expect(Number(shopResponse.shippingCost)===10 && shopResponse.estimatedDaysMin===2 && shopResponse.estimatedDaysMax===5 && !!shopResponse.estimatedDeliveryDateMin && !!shopResponse.estimatedDeliveryDateMax).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Shipping threshold: 500",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/delivery/calculate",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deliveryOptionId\": {{deliveryOptionId}},\n  \"subtotal\": 500\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Shipping cost and estimated dates\", () => { pm.expect(Number(shopResponse.shippingCost)===0 && shopResponse.estimatedDaysMin===2 && shopResponse.estimatedDaysMax===5 && !!shopResponse.estimatedDeliveryDateMin && !!shopResponse.estimatedDeliveryDateMax).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Shipping threshold: 501",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/delivery/calculate",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deliveryOptionId\": {{deliveryOptionId}},\n  \"subtotal\": 501\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Shipping cost and estimated dates\", () => { pm.expect(Number(shopResponse.shippingCost)===0 && shopResponse.estimatedDaysMin===2 && shopResponse.estimatedDaysMax===5 && !!shopResponse.estimatedDeliveryDateMin && !!shopResponse.estimatedDeliveryDateMax).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Run the complete folder in order. Its first request creates isolated data and refreshes customer/admin tokens."
+    },
+    {
+      "name": "Promo",
+      "item": [
+        {
+          "name": "00 | Prepare isolated fixtures: Promo",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add eligible product",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/cart/items",
+            "description": "Expected HTTP 201. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": {{productId}},\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Validate eligible promo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/promo/validate",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{promoCode}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Valid promo\", () => { pm.expect(shopResponse.valid===true && Number(shopResponse.discount)===12).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Clean test cart",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/cart",
+            "description": "Expected HTTP 204. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Run the complete folder in order. Its first request creates isolated data and refreshes customer/admin tokens."
+    },
+    {
+      "name": "Reviews",
+      "item": [
+        {
+          "name": "00 | Prepare isolated fixtures: Reviews",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reviews list",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/products/{{productId}}/reviews",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Review summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/products/{{productId}}/reviews/summary",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create review",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/products/{{productId}}/reviews",
+            "description": "Expected HTTP 201. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rating\": 5,\n  \"title\": \"Postman review\",\n  \"comment\": \"Review lifecycle test\",\n  \"pros\": \"Simple\",\n  \"cons\": \"None\",\n  \"images\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.environment.set(\"reviewId\", shopResponse.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update review",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/products/{{productId}}/reviews/{{reviewId}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rating\": 4,\n  \"title\": \"Postman review\",\n  \"comment\": \"Review lifecycle test\",\n  \"pros\": \"Simple\",\n  \"cons\": \"None\",\n  \"images\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Approve review as admin",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/products/{{productId}}/reviews/{{reviewId}}/approve",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Approved\", () => { pm.expect(shopResponse.status===\"APPROVED\").to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Approved review refreshes product rating",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/products/{{productId}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Recalculated rating\", () => { pm.expect(shopResponse.reviewCount===1 && Number(shopResponse.averageRating)===4).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete own test review",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/products/{{productId}}/reviews/{{reviewId}}",
+            "description": "Expected HTTP 204. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Run the complete folder in order. Its first request creates isolated data and refreshes customer/admin tokens."
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "00 | Prepare isolated fixtures: Admin",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Forbidden customer admin access",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/orders",
+            "description": "Expected HTTP 403. Run this folder from the first request; fixture variables are automatic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));",
+                  "const error = pm.response.json();",
+                  "pm.test(\"Standard error body\", () => { pm.expect(error.status).to.eql(403); pm.expect(error.message).to.be.a(\"string\"); pm.expect(error.path).to.be.a(\"string\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create category",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/categories",
+            "description": "Expected HTTP 201. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Admin Category {{runId}}\",\n  \"slug\": \"admin-cat-{{runId}}\",\n  \"sortOrder\": 0,\n  \"isActive\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.environment.set(\"adminCategoryId\", shopResponse.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update category",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/categories/{{adminCategoryId}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Category {{runId}}\",\n  \"slug\": \"admin-cat-{{runId}}\",\n  \"sortOrder\": 0,\n  \"isActive\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reorder categories",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/categories/reorder",
+            "description": "Expected HTTP 204. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"categoryId\": {{adminCategoryId}},\n      \"sortOrder\": 7\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete category",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/categories/{{adminCategoryId}}",
+            "description": "Expected HTTP 204. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create brand",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/brands",
+            "description": "Expected HTTP 201. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Admin Brand {{runId}}\",\n  \"slug\": \"admin-brand-{{runId}}\",\n  \"isActive\": true,\n  \"country\": \"Kazakhstan\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.environment.set(\"adminBrandId\", shopResponse.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update brand",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/brands/{{adminBrandId}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Brand {{runId}}\",\n  \"slug\": \"admin-brand-{{runId}}\",\n  \"isActive\": true,\n  \"country\": \"Kazakhstan\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete brand",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/brands/{{adminBrandId}}",
+            "description": "Expected HTTP 204. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create product",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/products",
+            "description": "Expected HTTP 201. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Admin Product {{runId}}\",\n  \"slug\": \"admin-product-{{runId}}\",\n  \"sku\": \"ADMIN-{{runId}}\",\n  \"basePrice\": 120,\n  \"stockQuantity\": 100,\n  \"lowStockThreshold\": 5,\n  \"isActive\": true,\n  \"isFeatured\": true,\n  \"isNewArrival\": true,\n  \"categoryId\": {{categoryId}},\n  \"brandId\": {{brandId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.environment.set(\"adminProductId\", shopResponse.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update product",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/products/{{adminProductId}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Admin Product {{runId}}\",\n  \"slug\": \"admin-product-{{runId}}\",\n  \"sku\": \"ADMIN-{{runId}}\",\n  \"basePrice\": 125,\n  \"lowStockThreshold\": 5,\n  \"isActive\": true,\n  \"isFeatured\": true,\n  \"isNewArrival\": true,\n  \"categoryId\": {{categoryId}},\n  \"brandId\": {{brandId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update stock",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/products/{{adminProductId}}/stock",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"stockQuantity\": 100\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Deactivate product",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/products/{{adminProductId}}/deactivate",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Activate product",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/products/{{adminProductId}}/activate",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create variant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/products/{{adminProductId}}/variants",
+            "description": "Expected HTTP 201. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sku\": \"VAR-{{runId}}\",\n  \"name\": \"Blue\",\n  \"price\": 130,\n  \"stockQuantity\": 100,\n  \"attributes\": {\n    \"color\": \"blue\"\n  },\n  \"isActive\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.environment.set(\"variantId\", shopResponse.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update variant",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/products/{{adminProductId}}/variants/{{variantId}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sku\": \"VAR-{{runId}}\",\n  \"name\": \"Blue\",\n  \"price\": 135,\n  \"stockQuantity\": 100,\n  \"attributes\": {\n    \"color\": \"blue\"\n  },\n  \"isActive\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete variant",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/products/{{adminProductId}}/variants/{{variantId}}",
+            "description": "Expected HTTP 204. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Soft-delete product",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/products/{{adminProductId}}",
+            "description": "Expected HTTP 204. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Deleted product is not public",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/products/{{adminProductId}}",
+            "description": "Expected HTTP 404. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));",
+                  "const error = pm.response.json();",
+                  "pm.test(\"Standard error body\", () => { pm.expect(error.status).to.eql(404); pm.expect(error.message).to.be.a(\"string\"); pm.expect(error.path).to.be.a(\"string\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List promo codes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/promo-codes",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create promo code",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/promo-codes",
+            "description": "Expected HTTP 201. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"ADMIN_{{runId}}\",\n  \"discountType\": \"PERCENTAGE\",\n  \"discountValue\": 10,\n  \"minOrderAmount\": 50,\n  \"maxDiscountAmount\": 20,\n  \"maxUsageCount\": 100,\n  \"maxUsagePerUser\": 10,\n  \"validFrom\": \"{{validFrom}}\",\n  \"validTo\": \"{{validTo}}\",\n  \"isActive\": true,\n  \"productIds\": [\n    {{productId}}\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.environment.set(\"adminPromoId\", shopResponse.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update promo code",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/promo-codes/{{adminPromoId}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"ADMIN_{{runId}}\",\n  \"discountType\": \"PERCENTAGE\",\n  \"discountValue\": 15,\n  \"minOrderAmount\": 50,\n  \"maxDiscountAmount\": 20,\n  \"maxUsageCount\": 100,\n  \"maxUsagePerUser\": 10,\n  \"validFrom\": \"{{validFrom}}\",\n  \"validTo\": \"{{validTo}}\",\n  \"isActive\": true,\n  \"productIds\": [\n    {{productId}}\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete promo code",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/promo-codes/{{adminPromoId}}",
+            "description": "Expected HTTP 204. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/orders",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/orders?status=PENDING&userId={{userId}}&orderNumber={{orderNumber}}",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Paged response\", () => { const page=pm.response.json(); pm.expect(page.content).to.be.an(\"array\"); pm.expect(page.size).to.be.at.most(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update admin note",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/orders/{{orderId}}/note",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Postman admin note\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reject invalid status transition",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/orders/{{orderId}}/status",
+            "description": "Expected HTTP 409. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"DELIVERED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
+                  "const error = pm.response.json();",
+                  "pm.test(\"Standard error body\", () => { pm.expect(error.status).to.eql(409); pm.expect(error.message).to.be.a(\"string\"); pm.expect(error.path).to.be.a(\"string\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm order",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/orders/{{orderId}}/status",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"CONFIRMED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pay confirmed order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/process",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{orderId}},\n  \"paymentMethod\": \"CARD\",\n  \"cardNumber\": \"4111111111111111\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Move to PROCESSING",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/orders/{{orderId}}/status",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"PROCESSING\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Expected order status\", () => { pm.expect(shopResponse.status===\"PROCESSING\").to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Move to SHIPPED",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/orders/{{orderId}}/status",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"SHIPPED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Expected order status\", () => { pm.expect(shopResponse.status===\"SHIPPED\").to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update tracking",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/orders/{{orderId}}/tracking",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"trackingNumber\": \"TRK-PM-{{runId}}\",\n  \"estimatedDeliveryDate\": \"{{validTo}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Tracking exposed\", () => { pm.expect(shopResponse.trackingNumber===\"TRK-PM-\"+pm.environment.get(\"runId\")).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Move to IN_TRANSIT",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/orders/{{orderId}}/status",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"IN_TRANSIT\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Expected order status\", () => { pm.expect(shopResponse.status===\"IN_TRANSIT\").to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Move to DELIVERED",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/orders/{{orderId}}/status",
+            "description": "Expected HTTP 200. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"DELIVERED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const shopResponse = pm.response.json();",
+                  "pm.test(\"Expected order status\", () => { pm.expect(shopResponse.status===\"DELIVERED\").to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delivered refund requires return",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/orders/{{orderId}}/status",
+            "description": "Expected HTTP 409. Run this folder from the first request; fixture variables are automatic.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"REFUNDED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
+                  "const error = pm.response.json();",
+                  "pm.test(\"Standard error body\", () => { pm.expect(error.status).to.eql(409); pm.expect(error.message).to.be.a(\"string\"); pm.expect(error.path).to.be.a(\"string\"); });"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Run the complete folder in order. Its first request creates isolated data and refreshes customer/admin tokens."
+    }
+  ]
+}

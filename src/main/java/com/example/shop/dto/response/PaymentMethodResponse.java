@@ -1,0 +1,10 @@
+package com.example.shop.dto.response;
+
+import com.example.shop.model.enums.PaymentMethod;
+
+public record PaymentMethodResponse(
+        PaymentMethod code,
+        String name,
+        boolean simulated
+) {
+}
